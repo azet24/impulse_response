@@ -86,12 +86,6 @@ __global__ void compute_reflections(
                 // Calculate attenuation due to distance and absorption
                 float attenuation = powf(1.0f - absorption, (float)order) / distance;
                 
-                // Add polarity inversion based on reflection count for realistic sound wave
-                // Invert polarity for odd reflection orders to create positive/negative components
-                if (order % 2 == 1) {
-                    attenuation = -attenuation;
-                }
-                
                 // Calculate arrival time in samples
                 float arrival_time = distance / speed_of_sound;
                 int sample_idx = (int)(arrival_time * sample_rate);
@@ -136,7 +130,8 @@ class ImpulseResponseGenerator:
                  listener_position: Tuple[float, float, float],
                  max_order: int = 10,
                  duration: float = 1.0,
-                 absorption: float = 0.2) -> np.ndarray:
+                 absorption: float = 0.2,
+                 source_signal: np.ndarray = None) -> np.ndarray:
         """
         Generate impulse response for given source and listener positions.
         
@@ -146,6 +141,7 @@ class ImpulseResponseGenerator:
             max_order: Maximum reflection order to compute
             duration: Duration of impulse response in seconds
             absorption: Wall absorption coefficient (0-1, 0=no absorption, 1=full absorption)
+            source_signal: Source impulse signal to emit (default: bipolar pulse with g(1)=1, g(3)=-1)
         
         Returns:
             Impulse response as numpy array
@@ -159,14 +155,29 @@ class ImpulseResponseGenerator:
         if not self._validate_position(listener_pos):
             raise ValueError(f"Listener position {listener_pos} is outside room {self.room_dimensions}")
         
+        # Default source signal: g(1)=1, g(3)=-1, zero elsewhere
+        if source_signal is None:
+            source_signal = np.zeros(4, dtype=np.float32)
+            source_signal[1] = 1.0   # g(1) = 1
+            source_signal[3] = -1.0  # g(3) = -1
+        
         num_samples = int(duration * self.sample_rate)
         
         if self.cuda_available:
-            return self._generate_cuda(source_pos, listener_pos, max_order, 
+            rir = self._generate_cuda(source_pos, listener_pos, max_order, 
                                       num_samples, absorption)
         else:
-            return self._generate_cpu(source_pos, listener_pos, max_order, 
+            rir = self._generate_cpu(source_pos, listener_pos, max_order, 
                                      num_samples, absorption)
+        
+        # Convolve room impulse response with source signal
+        output = np.convolve(rir, source_signal, mode='same')
+        
+        # Normalize
+        if np.max(np.abs(output)) > 0:
+            output = output / np.max(np.abs(output)) * 0.9
+        
+        return output.astype(np.float32)
     
     def _validate_position(self, position: np.ndarray) -> bool:
         """Check if position is within room boundaries."""
@@ -209,10 +220,6 @@ class ImpulseResponseGenerator:
         
         # Copy result back
         cuda.memcpy_dtoh(output, output_gpu)
-        
-        # Normalize
-        if np.max(np.abs(output)) > 0:
-            output = output / np.max(np.abs(output)) * 0.9
         
         return output
     
@@ -259,21 +266,12 @@ class ImpulseResponseGenerator:
                     # Calculate attenuation
                     attenuation = ((1.0 - absorption) ** order) / distance
                     
-                    # Add polarity inversion based on reflection count for realistic sound wave
-                    # Invert polarity for odd reflection orders to create positive/negative components
-                    if order % 2 == 1:
-                        attenuation = -attenuation
-                    
                     # Calculate arrival time
                     arrival_time = distance / self.speed_of_sound
                     sample_idx = int(arrival_time * self.sample_rate)
                     
                     if 0 <= sample_idx < num_samples:
                         output[sample_idx] += attenuation
-        
-        # Normalize
-        if np.max(np.abs(output)) > 0:
-            output = output / np.max(np.abs(output)) * 0.9
         
         return output
     
