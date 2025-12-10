@@ -53,7 +53,7 @@ python impulse_response.py --room 5 4 3 --source 1 2 1.5 --listener 4 2 1.5 -o r
 - `--source X Y Z`: Sound source position in meters (required)
 - `--listener X Y Z`: Listener position in meters (required)
 - `-o, --output`: Output WAV filename (default: impulse_response.wav)
-- `--sample-rate`: Sample rate in Hz (default: 48000)
+- `--sample-rate`: Sample rate in Hz (default: 44100)
 - `--duration`: Duration in seconds (default: 1.0)
 - `--max-order`: Maximum reflection order (default: 10)
 - `--absorption`: Wall absorption coefficient 0-1 (default: 0.2)
@@ -104,7 +104,7 @@ from impulse_response import ImpulseResponseGenerator
 # Create generator
 generator = ImpulseResponseGenerator(
     room_dimensions=(5.0, 4.0, 3.0),  # 5m x 4m x 3m room
-    sample_rate=48000
+    sample_rate=44100
 )
 
 # Generate impulse response

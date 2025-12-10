@@ -86,6 +86,12 @@ __global__ void compute_reflections(
                 // Calculate attenuation due to distance and absorption
                 float attenuation = powf(1.0f - absorption, (float)order) / distance;
                 
+                // Add polarity inversion based on reflection count for realistic sound wave
+                // Alternate sign based on number of reflections to create positive/negative components
+                if (order % 2 == 1) {
+                    attenuation = -attenuation;
+                }
+                
                 // Calculate arrival time in samples
                 float arrival_time = distance / speed_of_sound;
                 int sample_idx = (int)(arrival_time * sample_rate);
@@ -106,7 +112,7 @@ class ImpulseResponseGenerator:
     
     def __init__(self, 
                  room_dimensions: Tuple[float, float, float],
-                 sample_rate: int = 48000,
+                 sample_rate: int = 44100,
                  speed_of_sound: float = 343.0):
         """
         Initialize the impulse response generator.
@@ -253,6 +259,11 @@ class ImpulseResponseGenerator:
                     # Calculate attenuation
                     attenuation = ((1.0 - absorption) ** order) / distance
                     
+                    # Add polarity inversion based on reflection count for realistic sound wave
+                    # Alternate sign based on number of reflections to create positive/negative components
+                    if order % 2 == 1:
+                        attenuation = -attenuation
+                    
                     # Calculate arrival time
                     arrival_time = distance / self.speed_of_sound
                     sample_idx = int(arrival_time * self.sample_rate)
@@ -305,8 +316,8 @@ Examples:
                        help='Listener position in meters (x y z)')
     parser.add_argument('-o', '--output', type=str, default='impulse_response.wav',
                        help='Output WAV filename (default: impulse_response.wav)')
-    parser.add_argument('--sample-rate', type=int, default=48000,
-                       help='Sample rate in Hz (default: 48000)')
+    parser.add_argument('--sample-rate', type=int, default=44100,
+                       help='Sample rate in Hz (default: 44100)')
     parser.add_argument('--duration', type=float, default=1.0,
                        help='Duration in seconds (default: 1.0)')
     parser.add_argument('--max-order', type=int, default=10,

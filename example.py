@@ -19,7 +19,7 @@ def example_small_room():
     # Room: 4m x 3m x 2.5m
     generator = ImpulseResponseGenerator(
         room_dimensions=(4.0, 3.0, 2.5),
-        sample_rate=48000
+        sample_rate=44100
     )
     
     # Source in one corner, listener in center
@@ -44,7 +44,7 @@ def example_large_room():
     # Room: 20m x 15m x 8m
     generator = ImpulseResponseGenerator(
         room_dimensions=(20.0, 15.0, 8.0),
-        sample_rate=48000
+        sample_rate=44100
     )
     
     # Source at front, listener in middle
@@ -69,7 +69,7 @@ def example_stereo():
     # Room: 6m x 5m x 3m
     generator = ImpulseResponseGenerator(
         room_dimensions=(6.0, 5.0, 3.0),
-        sample_rate=48000
+        sample_rate=44100
     )
     
     # Source in front, two listeners (left and right ear)
@@ -115,7 +115,7 @@ def example_comparison():
     # Same room, different absorption values
     generator = ImpulseResponseGenerator(
         room_dimensions=(5.0, 4.0, 3.0),
-        sample_rate=48000
+        sample_rate=44100
     )
     
     source_pos = (2.5, 1.0, 1.5)
