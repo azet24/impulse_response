@@ -156,10 +156,11 @@ class ImpulseResponseGenerator:
             raise ValueError(f"Listener position {listener_pos} is outside room {self.room_dimensions}")
         
         # Default source signal: g(1)=1, g(3)=-1, zero elsewhere
+        # Note: Using 0-based array indexing where g(t) at sampling point t corresponds to array[t]
         if source_signal is None:
             source_signal = np.zeros(4, dtype=np.float32)
-            source_signal[1] = 1.0   # g(1) = 1
-            source_signal[3] = -1.0  # g(3) = -1
+            source_signal[1] = 1.0   # g(1) = 1 at sampling point t=1
+            source_signal[3] = -1.0  # g(3) = -1 at sampling point t=3
         
         num_samples = int(duration * self.sample_rate)
         
@@ -174,8 +175,9 @@ class ImpulseResponseGenerator:
         output = np.convolve(rir, source_signal, mode='same')
         
         # Normalize
-        if np.max(np.abs(output)) > 0:
-            output = output / np.max(np.abs(output)) * 0.9
+        max_val = np.max(np.abs(output))
+        if max_val > 0:
+            output = output / max_val * 0.9
         
         return output.astype(np.float32)
     
