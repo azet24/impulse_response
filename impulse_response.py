@@ -87,7 +87,7 @@ __global__ void compute_reflections(
                 float attenuation = powf(1.0f - absorption, (float)order) / distance;
                 
                 // Add polarity inversion based on reflection count for realistic sound wave
-                // Alternate sign based on number of reflections to create positive/negative components
+                // Invert polarity for odd reflection orders to create positive/negative components
                 if (order % 2 == 1) {
                     attenuation = -attenuation;
                 }
@@ -260,7 +260,7 @@ class ImpulseResponseGenerator:
                     attenuation = ((1.0 - absorption) ** order) / distance
                     
                     # Add polarity inversion based on reflection count for realistic sound wave
-                    # Alternate sign based on number of reflections to create positive/negative components
+                    # Invert polarity for odd reflection orders to create positive/negative components
                     if order % 2 == 1:
                         attenuation = -attenuation
                     
