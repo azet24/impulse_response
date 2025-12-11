@@ -107,7 +107,9 @@ class ImpulseResponseGenerator:
     def __init__(self, 
                  room_dimensions: Tuple[float, float, float],
                  sample_rate: int = 44100,
-                 speed_of_sound: float = 343.0):
+                 speed_of_sound: float = 343.0,
+                 binaural: bool = True,
+                 ear_separation: float = 0.15):
         """
         Initialize the impulse response generator.
         
@@ -115,10 +117,14 @@ class ImpulseResponseGenerator:
             room_dimensions: Tuple of (length, width, height) in meters
             sample_rate: Audio sample rate in Hz
             speed_of_sound: Speed of sound in m/s (default 343 m/s at 20°C)
+            binaural: Generate binaural (stereo) output by default (default: True)
+            ear_separation: Distance between ears in meters for binaural (default: 0.15m)
         """
         self.room_dimensions = np.array(room_dimensions, dtype=np.float32)
         self.sample_rate = sample_rate
         self.speed_of_sound = speed_of_sound
+        self.binaural = binaural
+        self.ear_separation = ear_separation
         self.cuda_available = CUDA_AVAILABLE
         
         if self.cuda_available:
@@ -131,23 +137,31 @@ class ImpulseResponseGenerator:
                  max_order: int = 10,
                  duration: float = 1.0,
                  absorption: float = 0.2,
-                 source_signal: np.ndarray = None) -> np.ndarray:
+                 source_signal: np.ndarray = None,
+                 binaural: bool = None) -> np.ndarray:
         """
         Generate impulse response for given source and listener positions.
         
         Args:
             source_position: (x, y, z) position of sound source in meters
-            listener_position: (x, y, z) position of listener in meters
+            listener_position: (x, y, z) position of listener center (head center) in meters
             max_order: Maximum reflection order to compute
             duration: Duration of impulse response in seconds
             absorption: Wall absorption coefficient (0-1, 0=no absorption, 1=full absorption)
             source_signal: Source impulse signal to emit (default: bipolar pulse with g(1)=1, g(3)=-1)
+            binaural: Override default binaural setting (None uses instance default)
         
         Returns:
-            Impulse response as numpy array
+            Impulse response as numpy array (mono or stereo depending on binaural setting)
+            - Mono: shape (num_samples,)
+            - Binaural: shape (num_samples, 2) with left channel in [:, 0] and right in [:, 1]
         """
         source_pos = np.array(source_position, dtype=np.float32)
         listener_pos = np.array(listener_position, dtype=np.float32)
+        
+        # Use instance binaural setting if not overridden
+        if binaural is None:
+            binaural = self.binaural
         
         # Validate positions are within room
         if not self._validate_position(source_pos):
@@ -164,22 +178,69 @@ class ImpulseResponseGenerator:
         
         num_samples = int(duration * self.sample_rate)
         
-        if self.cuda_available:
-            rir = self._generate_cuda(source_pos, listener_pos, max_order, 
-                                      num_samples, absorption)
+        if binaural:
+            # Generate binaural response (stereo)
+            # Calculate left and right ear positions based on listener position
+            # Assuming ears are along the X-axis (left-right)
+            left_ear_pos = listener_pos.copy()
+            left_ear_pos[0] -= self.ear_separation / 2
+            
+            right_ear_pos = listener_pos.copy()
+            right_ear_pos[0] += self.ear_separation / 2
+            
+            # Validate ear positions
+            if not self._validate_position(left_ear_pos):
+                raise ValueError(f"Left ear position {left_ear_pos} is outside room {self.room_dimensions}")
+            if not self._validate_position(right_ear_pos):
+                raise ValueError(f"Right ear position {right_ear_pos} is outside room {self.room_dimensions}")
+            
+            # Generate left channel
+            if self.cuda_available:
+                rir_left = self._generate_cuda(source_pos, left_ear_pos, max_order, 
+                                              num_samples, absorption)
+            else:
+                rir_left = self._generate_cpu(source_pos, left_ear_pos, max_order, 
+                                             num_samples, absorption)
+            
+            # Generate right channel
+            if self.cuda_available:
+                rir_right = self._generate_cuda(source_pos, right_ear_pos, max_order, 
+                                               num_samples, absorption)
+            else:
+                rir_right = self._generate_cpu(source_pos, right_ear_pos, max_order, 
+                                              num_samples, absorption)
+            
+            # Convolve with source signal
+            output_left = np.convolve(rir_left, source_signal, mode='same')
+            output_right = np.convolve(rir_right, source_signal, mode='same')
+            
+            # Combine into stereo
+            output = np.column_stack([output_left, output_right])
+            
+            # Normalize
+            max_val = np.max(np.abs(output))
+            if max_val > 0:
+                output = output / max_val * 0.9
+            
+            return output.astype(np.float32)
         else:
-            rir = self._generate_cpu(source_pos, listener_pos, max_order, 
-                                     num_samples, absorption)
-        
-        # Convolve room impulse response with source signal
-        output = np.convolve(rir, source_signal, mode='same')
-        
-        # Normalize
-        max_val = np.max(np.abs(output))
-        if max_val > 0:
-            output = output / max_val * 0.9
-        
-        return output.astype(np.float32)
+            # Generate mono response
+            if self.cuda_available:
+                rir = self._generate_cuda(source_pos, listener_pos, max_order, 
+                                          num_samples, absorption)
+            else:
+                rir = self._generate_cpu(source_pos, listener_pos, max_order, 
+                                         num_samples, absorption)
+            
+            # Convolve room impulse response with source signal
+            output = np.convolve(rir, source_signal, mode='same')
+            
+            # Normalize
+            max_val = np.max(np.abs(output))
+            if max_val > 0:
+                output = output / max_val * 0.9
+            
+            return output.astype(np.float32)
     
     def _validate_position(self, position: np.ndarray) -> bool:
         """Check if position is within room boundaries."""
@@ -326,6 +387,10 @@ Examples:
                        help='Wall absorption coefficient 0-1 (default: 0.2)')
     parser.add_argument('--speed-of-sound', type=float, default=343.0,
                        help='Speed of sound in m/s (default: 343.0)')
+    parser.add_argument('--mono', action='store_true',
+                       help='Generate mono output instead of binaural (stereo is default)')
+    parser.add_argument('--ear-separation', type=float, default=0.15,
+                       help='Distance between ears in meters for binaural (default: 0.15)')
     
     args = parser.parse_args()
     
@@ -334,12 +399,16 @@ Examples:
         parser.error("Absorption coefficient must be between 0 and 1")
     
     # Print configuration
+    binaural_mode = not args.mono
     print("=" * 60)
     print("Impulse Response Generator")
     print("=" * 60)
     print(f"Room dimensions: {args.room[0]}m x {args.room[1]}m x {args.room[2]}m")
     print(f"Source position: ({args.source[0]}, {args.source[1]}, {args.source[2]}) m")
     print(f"Listener position: ({args.listener[0]}, {args.listener[1]}, {args.listener[2]}) m")
+    print(f"Output mode: {'Binaural (Stereo)' if binaural_mode else 'Mono'}")
+    if binaural_mode:
+        print(f"Ear separation: {args.ear_separation}m")
     print(f"Sample rate: {args.sample_rate} Hz")
     print(f"Duration: {args.duration} s")
     print(f"Max reflection order: {args.max_order}")
@@ -352,7 +421,9 @@ Examples:
         generator = ImpulseResponseGenerator(
             room_dimensions=tuple(args.room),
             sample_rate=args.sample_rate,
-            speed_of_sound=args.speed_of_sound
+            speed_of_sound=args.speed_of_sound,
+            binaural=binaural_mode,
+            ear_separation=args.ear_separation
         )
         
         # Generate impulse response
@@ -370,7 +441,13 @@ Examples:
         
         # Print statistics
         print("\nImpulse Response Statistics:")
-        print(f"  Samples: {len(ir)}")
+        if ir.ndim == 1:
+            print(f"  Format: Mono")
+            print(f"  Samples: {len(ir)}")
+        else:
+            print(f"  Format: Stereo (Binaural)")
+            print(f"  Samples: {ir.shape[0]}")
+            print(f"  Channels: {ir.shape[1]}")
         print(f"  Peak amplitude: {np.max(np.abs(ir)):.4f}")
         print(f"  Non-zero samples: {np.count_nonzero(ir)}")
         print("\nSuccess!")
