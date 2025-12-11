@@ -119,6 +119,10 @@ class ImpulseResponseGenerator:
             speed_of_sound: Speed of sound in m/s (default 343 m/s at 20°C)
             binaural: Generate binaural (stereo) output by default (default: True)
             ear_separation: Distance between ears in meters for binaural (default: 0.15m)
+        
+        Note:
+            For binaural mode, ears are positioned along the X-axis (left-right), 
+            with the listener position representing the head center.
         """
         self.room_dimensions = np.array(room_dimensions, dtype=np.float32)
         self.sample_rate = sample_rate
@@ -194,21 +198,11 @@ class ImpulseResponseGenerator:
             if not self._validate_position(right_ear_pos):
                 raise ValueError(f"Right ear position {right_ear_pos} is outside room {self.room_dimensions}")
             
-            # Generate left channel
-            if self.cuda_available:
-                rir_left = self._generate_cuda(source_pos, left_ear_pos, max_order, 
-                                              num_samples, absorption)
-            else:
-                rir_left = self._generate_cpu(source_pos, left_ear_pos, max_order, 
-                                             num_samples, absorption)
-            
-            # Generate right channel
-            if self.cuda_available:
-                rir_right = self._generate_cuda(source_pos, right_ear_pos, max_order, 
-                                               num_samples, absorption)
-            else:
-                rir_right = self._generate_cpu(source_pos, right_ear_pos, max_order, 
-                                              num_samples, absorption)
+            # Generate left and right channels
+            rir_left = self._generate_rir(source_pos, left_ear_pos, max_order, 
+                                         num_samples, absorption)
+            rir_right = self._generate_rir(source_pos, right_ear_pos, max_order, 
+                                          num_samples, absorption)
             
             # Convolve with source signal
             output_left = np.convolve(rir_left, source_signal, mode='same')
@@ -225,12 +219,8 @@ class ImpulseResponseGenerator:
             return output.astype(np.float32)
         else:
             # Generate mono response
-            if self.cuda_available:
-                rir = self._generate_cuda(source_pos, listener_pos, max_order, 
-                                          num_samples, absorption)
-            else:
-                rir = self._generate_cpu(source_pos, listener_pos, max_order, 
-                                         num_samples, absorption)
+            rir = self._generate_rir(source_pos, listener_pos, max_order, 
+                                     num_samples, absorption)
             
             # Convolve room impulse response with source signal
             output = np.convolve(rir, source_signal, mode='same')
@@ -245,6 +235,24 @@ class ImpulseResponseGenerator:
     def _validate_position(self, position: np.ndarray) -> bool:
         """Check if position is within room boundaries."""
         return np.all(position >= 0) and np.all(position <= self.room_dimensions)
+    
+    def _generate_rir(self, 
+                      source_pos: np.ndarray, 
+                      listener_pos: np.ndarray,
+                      max_order: int,
+                      num_samples: int,
+                      absorption: float) -> np.ndarray:
+        """
+        Generate raw room impulse response (before convolution with source signal).
+        
+        Helper method that selects CUDA or CPU implementation.
+        """
+        if self.cuda_available:
+            return self._generate_cuda(source_pos, listener_pos, max_order, 
+                                      num_samples, absorption)
+        else:
+            return self._generate_cpu(source_pos, listener_pos, max_order, 
+                                     num_samples, absorption)
     
     def _generate_cuda(self,
                       source_pos: np.ndarray,
