@@ -166,7 +166,9 @@ ir_mono = generator_mono.generate(
 # ir_mono shape: (samples,) for mono
 generator_mono.save_wav(ir_mono, "mono_output.wav")
 
-# Custom source signal (default is g(1)=1, g(3)=-1)
+# Custom source signal
+# Default: g(t) at sampling points where g(1)=1, g(3)=-1
+# Represented as array: [g(0), g(1), g(2), g(3)] = [0, 1, 0, -1]
 custom_signal = np.array([0, 1, 0, -1], dtype=np.float32)
 ir_custom = generator.generate(
     source_position=(1.0, 2.0, 1.5),
@@ -213,11 +215,13 @@ For binaural (stereo) output (default mode):
 
 ### Custom Source Signal
 
-The default source impulse is a bipolar signal where:
-- g(0) = 0
-- g(1) = 1 (positive peak)
-- g(2) = 0
-- g(3) = -1 (negative peak)
+The default source impulse is a bipolar signal defined at sampling points t=0,1,2,3,...:
+- g(t=0) = 0 (array index [0])
+- g(t=1) = 1 (array index [1], positive peak)
+- g(t=2) = 0 (array index [2])
+- g(t=3) = -1 (array index [3], negative peak)
+
+In code, this is represented as: `[0, 1, 0, -1]`
 
 This creates realistic sound wave propagation with both positive and negative components, mimicking natural acoustic phenomena.
 
